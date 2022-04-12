@@ -1,0 +1,101 @@
+plugins {
+    id 'java-library'
+    id 'maven-publish'
+}
+
+group 'fr.lgatodu47'
+version "${version}" + (snapshot == "true" ? "-SNAPSHOT" : "")
+
+wrapper {
+    gradleVersion = '7.2'
+    distributionType = Wrapper.DistributionType.ALL
+}
+
+repositories {
+    mavenCentral()
+
+    ivy {
+        url 'https://github.com/'
+
+        patternLayout {
+            artifact '/[organisation]/[module]/releases/download/[revision]/[module].[ext]'
+        }
+
+        metadataSources {
+            artifact()
+        }
+    }
+}
+
+configurations {
+    agent
+    exports {
+        canBeConsumed = false
+        canBeResolved = true
+    }
+    implementation.extendsFrom(exports, agent)
+}
+
+dependencies {
+    agent "CGJennings:jar-loader:${agent_version}@jar"
+    exports 'net.bytebuddy:byte-buddy-agent:1.12.8'
+    exports group: 'com.google.code.gson', name: 'gson', version: "${gson_version}"
+}
+
+jar {
+    manifest {
+        attributes(
+                "Main-class": "fr.lgatodu47.meowrapper.MeoWrapper",
+                "Premain-Class": "ca.cgjennings.jvm.JarLoader",
+                "Agent-Class": "ca.cgjennings.jvm.JarLoader"
+        )
+    }
+
+    from { configurations.agent.collect { it.isDirectory() ? it : zipTree(it) } }
+}
+
+task fatJar(type: Jar) {
+    classifier 'fatJar'
+    group 'build'
+
+    manifest {
+        attributes(
+                "Main-class": "fr.lgatodu47.meowrapper.MeoWrapper",
+                "Premain-Class": "ca.cgjennings.jvm.JarLoader",
+                "Agent-Class": "ca.cgjennings.jvm.JarLoader"
+        )
+    }
+
+    from { configurations.exports.collect {it.isDirectory() ? it : zipTree(it)} } {
+        exclude "META-INF/versions/9/module-info.class"
+    }
+
+    with jar;
+}
+
+tasks.withType(GenerateModuleMetadata) {
+    enabled = false
+}
+
+publishing {
+    publications {
+        meowrapper(MavenPublication) {
+            from components.java
+
+            pom.withXml {
+                var pomNode = asNode();
+                pomNode.dependencies.'*'.findAll() {
+                    it.artifactId.text() == 'jar-loader'
+                }.each() {
+                    it.parent().remove(it);
+                }
+            }
+        }
+    }
+    repositories {
+        maven {
+            name = "Local"
+            url layout.buildDirectory.dir("repo")
+        }
+    }
+}

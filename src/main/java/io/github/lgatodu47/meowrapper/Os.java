@@ -1,4 +1,4 @@
-package fr.lgatodu47.meowrapper;
+package io.github.lgatodu47.meowrapper;
 
 import java.util.Locale;
 

@@ -1,4 +1,4 @@
-package fr.lgatodu47.meowrapper;
+package io.github.lgatodu47.meowrapper;
 
 /**
  * A package-private class containing logging methods for MeoWrapper.

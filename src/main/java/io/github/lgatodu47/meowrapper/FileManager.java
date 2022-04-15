@@ -1,10 +1,10 @@
-package fr.lgatodu47.meowrapper;
+package io.github.lgatodu47.meowrapper;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
-import fr.lgatodu47.meowrapper.json.Assets;
-import fr.lgatodu47.meowrapper.json.Version;
-import fr.lgatodu47.meowrapper.json.VersionManifest;
+import io.github.lgatodu47.meowrapper.json.Assets;
+import io.github.lgatodu47.meowrapper.json.Version;
+import io.github.lgatodu47.meowrapper.json.VersionManifest;
 
 import java.io.*;
 import java.math.BigInteger;
@@ -21,7 +21,7 @@ import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 import java.util.stream.Stream;
 
-import static fr.lgatodu47.meowrapper.Logger.*;
+import static io.github.lgatodu47.meowrapper.Logger.*;
 
 /**
  * Class everything related to File managing (File download, creation, etc.)

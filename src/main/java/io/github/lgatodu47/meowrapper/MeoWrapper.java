@@ -1,4 +1,4 @@
-package fr.lgatodu47.meowrapper;
+package io.github.lgatodu47.meowrapper;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -9,7 +9,7 @@ import java.util.Arrays;
 import java.util.Locale;
 import java.util.Optional;
 
-import static fr.lgatodu47.meowrapper.Logger.*;
+import static io.github.lgatodu47.meowrapper.Logger.*;
 
 public class MeoWrapper {
     public static final Path RUNNING_PATH = tryDetectRunPath();

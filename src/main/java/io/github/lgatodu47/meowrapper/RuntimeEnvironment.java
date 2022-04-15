@@ -1,7 +1,7 @@
-package fr.lgatodu47.meowrapper;
+package io.github.lgatodu47.meowrapper;
 
-import fr.lgatodu47.meowrapper.json.Version;
-import fr.lgatodu47.meowrapper.json.VersionManifest;
+import io.github.lgatodu47.meowrapper.json.Version;
+import io.github.lgatodu47.meowrapper.json.VersionManifest;
 
 import java.io.File;
 import java.io.IOException;
@@ -11,7 +11,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
 
-import static fr.lgatodu47.meowrapper.Logger.*;
+import static io.github.lgatodu47.meowrapper.Logger.*;
 
 /**
  * Probably the most important class of the program.<br>

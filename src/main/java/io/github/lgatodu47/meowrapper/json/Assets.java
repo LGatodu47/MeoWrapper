@@ -1,4 +1,4 @@
-package fr.lgatodu47.meowrapper.json;
+package io.github.lgatodu47.meowrapper.json;
 
 import java.util.Map;
 

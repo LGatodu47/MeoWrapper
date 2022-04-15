@@ -1,4 +1,4 @@
-package fr.lgatodu47.meowrapper;
+package io.github.lgatodu47.meowrapper;
 
 import ca.cgjennings.jvm.JarLoader;
 import net.bytebuddy.agent.ByteBuddyAgent;
@@ -13,8 +13,8 @@ import java.net.URL;
 import java.util.Set;
 import java.util.jar.Manifest;
 
-import static fr.lgatodu47.meowrapper.Logger.error;
-import static fr.lgatodu47.meowrapper.Logger.info;
+import static io.github.lgatodu47.meowrapper.Logger.error;
+import static io.github.lgatodu47.meowrapper.Logger.info;
 
 /**
  * A class that handles all the processes related to the java agent.<br>

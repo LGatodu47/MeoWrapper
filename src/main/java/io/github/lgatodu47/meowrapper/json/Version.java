@@ -1,8 +1,8 @@
-package fr.lgatodu47.meowrapper.json;
+package io.github.lgatodu47.meowrapper.json;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
-import fr.lgatodu47.meowrapper.Os;
+import io.github.lgatodu47.meowrapper.Os;
 
 import java.io.File;
 import java.io.FileReader;

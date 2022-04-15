@@ -1,15 +1,11 @@
 plugins {
     id 'java-library'
     id 'maven-publish'
+    id 'signing'
 }
 
-group 'fr.lgatodu47'
+group 'io.github.lgatodu47'
 version "${version}" + (snapshot == "true" ? "-SNAPSHOT" : "")
-
-wrapper {
-    gradleVersion = '7.2'
-    distributionType = Wrapper.DistributionType.ALL
-}
 
 repositories {
     mavenCentral()
@@ -73,14 +69,42 @@ task fatJar(type: Jar) {
     with jar;
 }
 
+task javadocJar(type: Jar) {
+    archiveClassifier = 'javadoc'
+    from javadoc
+}
+
+task sourcesJar(type: Jar) {
+    archiveClassifier = 'sources'
+    from sourceSets.main.allSource
+}
+
 tasks.withType(GenerateModuleMetadata) {
     enabled = false
 }
+
+/*signing {
+    sign configurations.archives
+}*/
 
 publishing {
     publications {
         meowrapper(MavenPublication) {
             from components.java
+            artifact javadocJar
+            artifact sourcesJar
+
+            pom {
+                name = 'MeoWrapper'
+                description = 'A simple minecraft launchwrapper'
+                url = 'https://github.com/LGatodu47/MeoWrapper'
+                licenses {
+                    license {
+                        name = 'MIT License'
+                        url = "https://www.opensource.org/licenses/mit-license.php"
+                    }
+                }
+            }
 
             pom.withXml {
                 var pomNode = asNode();
@@ -96,6 +120,15 @@ publishing {
         maven {
             name = "Local"
             url layout.buildDirectory.dir("repo")
+        }
+        maven {
+            name = "OSSRH"
+            url 'https://s01.oss.sonatype.org/service/local/staging/deploy/maven2'
+
+            credentials {
+                username System.getProperty("meowrapper.publish.username")
+                password System.getProperty("meowrapper.publish.password")
+            }
         }
     }
 }

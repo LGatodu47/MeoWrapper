@@ -1,10 +1,10 @@
-package fr.lgatodu47.meowrapper;
+package io.github.lgatodu47.meowrapper;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
 
-import static fr.lgatodu47.meowrapper.Logger.*;
+import static io.github.lgatodu47.meowrapper.Logger.*;
 
 /**
  * Utility class that parses String arrays into arguments and vice-versa.

@@ -19,13 +19,13 @@ server.properties, ...).
 ### Using MeoWrapper in a Java Project
 
 To use MeoWrapper in your java project, you will first need to declare it as a dependency. You can
-find artifacts on [Nexus Central Maven](https://s01.oss.sonatype.org/) at
+find artifacts on [Sonatype Releases Maven](https://s01.oss.sonatype.org/) at
 `io.github.lgatodu47.meowrapper`. If you are running on a Gradle project, your `build.gradle` 
 should look like this:
 
     repositories {
         maven {
-            url 'https://s01.oss.sonatype.org/content/repositories/central'
+            url 'https://s01.oss.sonatype.org/content/repositories/releases'
         }
     }
 

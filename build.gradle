@@ -66,7 +66,7 @@ task fatJar(type: Jar) {
         exclude "META-INF/versions/9/module-info.class"
     }
 
-    with jar;
+    with jar
 }
 
 task javadocJar(type: Jar) {
@@ -82,10 +82,6 @@ task sourcesJar(type: Jar) {
 tasks.withType(GenerateModuleMetadata) {
     enabled = false
 }
-
-/*signing {
-    sign configurations.archives
-}*/
 
 publishing {
     publications {
@@ -104,14 +100,28 @@ publishing {
                         url = "https://www.opensource.org/licenses/mit-license.php"
                     }
                 }
+
+                scm {
+                    connection = "scm:git:https://github.com/LGatodu47/MeoWrapper.git"
+                    developerConnection = "scm:git:ssh://github.com/LGatodu47/MeoWrapper.git"
+                    url = "https://github.com/LGatodu47/MeoWrapper"
+                }
+
+                developers {
+                    developer {
+                        id = 'lgatodu47'
+                        name = 'LGatodu47'
+                        email = 'driph.v450@gmail.com'
+                    }
+                }
             }
 
             pom.withXml {
-                var pomNode = asNode();
+                var pomNode = asNode()
                 pomNode.dependencies.'*'.findAll() {
                     it.artifactId.text() == 'jar-loader'
                 }.each() {
-                    it.parent().remove(it);
+                    it.parent().remove(it)
                 }
             }
         }
@@ -131,4 +141,8 @@ publishing {
             }
         }
     }
+}
+
+signing {
+    sign publishing.publications.meowrapper
 }

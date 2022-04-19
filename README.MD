@@ -6,31 +6,32 @@ launches it. MeoWrapper is intended to be used for development projects where a 
 is needed (e.g. plugin development) or when you're having issues with your Minecraft launcher.
 
 MeoWrapper can run in 3 environments:
-- Client (The most stable one)
-- Data (Also very stable, but not very useful)
-- Server (Very unstable for now and has a lot of issues)
-
-I would recommend you **avoid using the Server environment** for now because the run directory is
-usually set to MeoWrapper's run directory, causing a mess of server files (eula.txt, 
-server.properties, ...).
+- Client (Normal Minecraft)
+- Data (Generation of data files; documentation for data packs)
+- Server (Minecraft Server)
 
 ****
 
 ### Using MeoWrapper in a Java Project
 
 To use MeoWrapper in your java project, you will first need to declare it as a dependency. You can
-find artifacts on [Sonatype Releases Maven](https://s01.oss.sonatype.org/) at
-`io.github.lgatodu47.meowrapper`. If you are running on a Gradle project, your `build.gradle` 
+find artifacts on [Sonatype Releases Maven](https://s01.oss.sonatype.org/) or on [Maven Central](https://repo1.maven.org/maven2/)
+at `io.github.lgatodu47.meowrapper`. If you are running on a Gradle project, your `build.gradle` 
 should look like this:
 
     repositories {
+        // Archives can sometimes be found on maven central
+        // However, they aren't always up-to-date
+        mavenCentral()
+
+        // Should always work
         maven {
             url 'https://s01.oss.sonatype.org/content/repositories/releases'
         }
     }
 
     dependencies {
-        runtimeOnly 'io.github.lgatodu47:meowrapper:1.0'
+        runtimeOnly 'io.github.lgatodu47:meowrapper:1.1.0'
     }
 
 We first declare the maven repository where the artifacts are located and then add the dependency
@@ -55,7 +56,10 @@ Once your run configuration is done, you should be able to run the game.
 
 ### Using MeoWrapper in Command Line
 
-First go on the [releases page](https://github.com/LGatodu47/MeoWrapper/releases) and download the
+You will first need to install **JDK 17** if you haven't installed it yet as MeoWrapper is compiled
+in Java 17. There are many JDKs out there such as [OpenJDK](https://jdk.java.net/17/) or [Eclipse Temurin](https://adoptium.net/temurin/archive).
+
+Next go on the [releases page](https://github.com/LGatodu47/MeoWrapper/releases) and download the
 latest release of MeoWrapper. Put the downloaded jar in an empty folder and open the command line
 in the run folder. You can then run the jar with argument `help-<env>` to have more info about an
 environment.  

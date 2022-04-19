@@ -13,10 +13,12 @@ import java.net.URL;
 import java.net.URLConnection;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.*;
+import java.util.function.Consumer;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 import java.util.stream.Stream;
@@ -97,11 +99,11 @@ public class FileManager {
      */
     public static File downloadVersionJson(Path versionJsonPath, String version, VersionManifest manifest) {
         try {
-            Files.createDirectories(versionJsonPath.getParent());
-
             if(Files.notExists(versionJsonPath)) {
                 URL versionUrl = manifest.getUrl(version);
                 if (versionUrl != null) {
+                    Files.createDirectories(versionJsonPath.getParent());
+
                     try (InputStream versionData = versionUrl.openStream()) {
                         Files.copy(versionData, versionJsonPath);
                         debug("Downloaded version json for minecraft " + version);
@@ -144,35 +146,37 @@ public class FileManager {
      * Checks and downloads the required libraries for the specified version.
      *
      * @param libDir The path to the 'libraries' directory.
+     * @param nativesDir The path to the 'natives' directory.
      * @param versionJson The version info.
+     * @param nativesAdder A consumer handling accumulation of the natives paths.
      * @return A set containing File references to all the libraries.
      */
-    public static Set<File> getLibraries(Path libDir, Path nativesDir, Version versionJson) {
+    public static List<File> getLibraries(Path libDir, Path nativesDir, Version versionJson, Consumer<Path> nativesAdder) {
         info("Gathering libraries...");
-        Set<File> result = new HashSet<>();
+        List<File> result = new ArrayList<>();
 
         for(Version.Library lib : versionJson.libraries) {
             if(lib.isAllowed()) { // Some libraries are only allowed on some operating systems
                 Version.LibraryDownloadInfo download = lib.downloads.artifact;
-                if(download == null) continue;
+                if(download != null) {
+                    Path path = tryFindMoreRecent(libDir, download, lib.getVersion());
 
-                Path path = tryFindMoreRecent(libDir, download, lib.getVersion());
+                    if(path == null) {
+                        path = libDir.resolve(download.path);
 
-                if(path == null) {
-                    path = libDir.resolve(download.path);
-
-                    if(Files.notExists(path)) {
-                        try {
-                            download(path, download.url, download.sha1);
-                        } catch (IOException e) {
-                            error("An error occurred when downloading library with path '%s'", download.path);
-                            e.printStackTrace();
-                            continue;
+                        if(Files.notExists(path)) {
+                            try {
+                                download(path, download.url, download.sha1);
+                            } catch (IOException e) {
+                                error("An error occurred when downloading library with path '%s'", download.path);
+                                e.printStackTrace();
+                                continue;
+                            }
                         }
                     }
-                }
 
-                result.add(path.toFile());
+                    result.add(path.toFile());
+                }
 
                 if(lib.natives != null) {
                     Version.LibraryDownloadInfo nativeDownload = lib.downloads.classifiers.get(lib.natives.get(Os.getCurrent().getName()));
@@ -194,12 +198,14 @@ public class FileManager {
                             }
                         }
 
-                        // extract lwjgl natives
-                        if(nativePath.getFileName().toString().contains("lwjgl-platform") && compareVersions("3.0.0", lib.getVersion()) < 0) {
-                            System.setProperty("org.lwjgl.librarypath", extractNatives(nativePath.toFile(), nativesDir).toString());
-                        }
-
                         result.add(nativePath.toFile());
+
+                        Version.ExtractInfo extractInfo = lib.extract;
+
+                        if(extractInfo != null) {
+                            // Extracts natives if specified
+                            nativesAdder.accept(extractNatives(nativePath.toFile(), nativesDir, new HashSet<>(lib.extract.exclude)));
+                        }
                     }
                 }
             }
@@ -243,7 +249,7 @@ public class FileManager {
         if(assets == null) return assetsDir;
 
         debug("Checking assets...");
-        boolean downloadedAssets = false; // Let's let the user know when we're downloading assets
+        boolean downloadedAssets = false; // Let the user know when we're downloading assets
         int assetCount = 0;
 
         for(Assets.AssetInfo info : assets.objects.values()) {
@@ -316,16 +322,17 @@ public class FileManager {
      *
      * @param sourceFile The file to extract.
      * @param nativesDir The 'natives' directory.
+     * @param exclusions A set containing String representations of all the excluded paths.
      * @return A path representing the destination directory of the source file's content.
      */
-    private static Path extractNatives(File sourceFile, Path nativesDir) {
-        Path destinationDir = nativesDir.resolve(sourceFile.getName().substring(0, sourceFile.getName().indexOf('.')));
+    private static Path extractNatives(File sourceFile, Path nativesDir, Set<String> exclusions) {
+        Path destinationDir = nativesDir.resolve(sourceFile.getName().substring(0, sourceFile.getName().lastIndexOf('.')));
         try {
             Files.createDirectories(destinationDir);
 
             try(Stream<Path> files = Files.list(destinationDir)) {
                 if(Files.notExists(destinationDir) || files.findAny().isEmpty()) {
-                    extract(sourceFile, destinationDir);
+                    extract(sourceFile, destinationDir, exclusions);
                 }
             }
         } catch (IOException e) {
@@ -340,24 +347,33 @@ public class FileManager {
      *
      * @param srcFile The file to extract.
      * @param destination The directory where the content of the file will be extracted.
+     * @param exclusions A set containing String representations of all the excluded paths.
      * @throws IOException If some I/O error occurs.
      */
-    private static void extract(File srcFile, Path destination) throws IOException {
-        JarFile jar = new JarFile(srcFile);
-        Enumeration<JarEntry> entries = jar.entries();
+    private static void extract(File srcFile, Path destination, Set<String> exclusions) throws IOException {
+        try(JarFile jar = new JarFile(srcFile)) {
+            Enumeration<JarEntry> entries = jar.entries();
 
-        while(entries.hasMoreElements()) {
-            JarEntry entry = entries.nextElement();
+            whileLoop:
+            while(entries.hasMoreElements()) {
+                JarEntry entry = entries.nextElement();
 
-            if(entry.isDirectory()) continue;
+                if(entry.isDirectory()) continue;
 
-            Path file = destination.resolve(entry.getName());
+                for(String exclusionStr : exclusions) {
+                    if(Path.of(entry.getName()).startsWith(exclusionStr)) {
+                        continue whileLoop;
+                    }
+                }
 
-            if(Files.notExists(file))
-                Files.createDirectories(file.getParent());
+                Path file = destination.resolve(entry.getName());
 
-            try(InputStream input = jar.getInputStream(entry); FileOutputStream output = new FileOutputStream(file.toFile())) {
-                while(input.available() > 0) output.write(input.read());
+                if(Files.notExists(file))
+                    Files.createDirectories(file.getParent());
+
+                try(InputStream input = jar.getInputStream(entry); FileOutputStream output = new FileOutputStream(file.toFile())) {
+                    while(input.available() > 0) output.write(input.read());
+                }
             }
         }
 
@@ -367,7 +383,7 @@ public class FileManager {
     /**
      * Unused method that originally checked for more recent version of the library to download.
      * Did this before I realised that there were download rules on libraries.<br>
-     * May get re-implemented later-on for something else.
+     * Might get re-implemented later-on for something else.
      *
      * @return {@code null}
      */
@@ -431,7 +447,6 @@ public class FileManager {
         try {
             hash = MessageDigest.getInstance("SHA-1");
         } catch (NoSuchAlgorithmException e) {
-            e.printStackTrace();
             throw new RuntimeException("SHA-1 is somehow missing.", e);
         }
         byte[] buf = new byte[1024];

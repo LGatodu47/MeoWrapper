@@ -53,12 +53,14 @@ public abstract sealed class RuntimeEnvironment {
     /**
      * Logs the list of all the available arguments for the current environment
      */
-    public void logArgumentsList() {
+    public final void logArgumentsList() {
         info("Here is the list of all the arguments:");
-        logArg("debug", "If specified debug messages will be logged.", false);
+        logArg("debug", "If specified, debug messages will be logged.", false);
         logArg("environment", "The running environment of the game: Client, Server or Data.", true);
         logArg("version", "The minecraft version you're using.", true);
-        logArg("mainClass", "The fully qualified name of the main class of jar (only for custom jars or old versions).", false);
+        logArg("javaPath", "The path to a custom java executable for Minecraft.", false);
+        logArg("vmOptions", "The JVM options for Minecraft launch.", false);
+        logArg("mainClass", "The fully qualified name of the main class of jar (for custom jars or old versions).", false);
         logArg("args", "The additional arguments of the launching target.", false);
         info("Specific arguments to '%s' environment:", getName());
         logAdditionalArgs();
@@ -77,25 +79,33 @@ public abstract sealed class RuntimeEnvironment {
     public abstract String getMainClassName();
 
     /**
-     * Pre-setup method for environments. Mainly used to initialize the java agent.
-     * @return {@code true} if no problem was encountered.
-     */
-    public abstract boolean preSetup();
-
-    /**
      * Setup method for environments. Used to process the specified arguments and to prepare the launch.
      *
      * @param args The Arguments instance containing all the specified program arguments.
      * @param version The game version. Useful for downloads.
-     * @return {@code false} if no problem was encountered. (IntelliJ again forced me)
+     * @return {@code true} if no problem was encountered.
      */
     public abstract boolean setup(Arguments args, String version);
 
     /**
-     * Pre-launch method for environments. Mainly used to add the libraries and the game's jar in the classpath using {@link AgentManager#tryAddJars(File, Set)}.
-     * @return {@code true} if no problem was encountered.
+     * @return An Optional holding a String representation of the absolute path of the java executable.
      */
-    public abstract boolean preLaunch();
+    public abstract Optional<String> getJavaPath();
+
+    /**
+     * @return A file representation of the run directory for a specific environment.
+     */
+    public abstract File getRunDir();
+
+    /**
+     * @return A list containing all the files to add in the classpath (minecraft jar and libraries).
+     */
+    public abstract List<File> getClassPath();
+
+    /**
+     * @return A list of all the JVM options to specify for the process.
+     */
+    public abstract List<String> getVMOptions();
 
     /**
      * @return A String array containing all the launch arguments for the game.
@@ -165,13 +175,13 @@ public abstract sealed class RuntimeEnvironment {
 
         @Override
         public boolean setup(Arguments args, String version) {
-            if(super.setup(args, version)) return true;
+            if(!super.setup(args, version)) return false;
 
             Path assetsDir = FileManager.gatherAssets(args.getPath("assetsDir", mcDir.resolve("assets")), versionJson);
             args.get("mainClass").or(() -> Optional.ofNullable(versionJson.mainClass)).ifPresent(name -> mainClassName = name);
             arguments = concat(args.get("args").map(s -> s.split(" ")).orElse(new String[0]), createClientRunArgs(runDir, assetsDir, versionJson.assets, version, args));
 
-            return false;
+            return true;
         }
 
         @Override
@@ -221,7 +231,7 @@ public abstract sealed class RuntimeEnvironment {
 
         @Override
         public boolean setup(Arguments args, String version) {
-            if(super.setup(args, version)) return true;
+            if(!super.setup(args, version)) return false;
 
             args.get("mainClass").ifPresent(name -> mainClassName = name);
             arguments = concat(args.get("args").map(s -> s.split(" ")).orElse(new String[0]), createDataRunArgs(
@@ -230,7 +240,7 @@ public abstract sealed class RuntimeEnvironment {
                     args
             ));
 
-            return false;
+            return true;
         }
 
         @Override
@@ -258,20 +268,17 @@ public abstract sealed class RuntimeEnvironment {
      * Server implementation of the RuntimeEnvironment
      */
     private static final class Server extends RuntimeEnvironment {
+        private Path javaPath;
+        private Path serverDir;
         private File serverJar;
         private String mainClassName = "net.minecraft.server.Main";
         private String[] arguments;
-        private Set<File> libraries;
-
-        @Override
-        public void logArgumentsList() {
-            super.logArgumentsList();
-            info("IMPORTANT: In the current version of MeoWrapper you cannot specify the server run directory: it will therefore default to the wrapper's jar run directory. It is recommended to move the wrapper's jar into a brand new empty directory.");
-        }
+        private List<File> libraries;
+        private List<String> vmOptions;
 
         @Override
         public void logAdditionalArgs() {
-//            logArg("serverDir", "The running directory of your server (if absent will create a new 'server' folder in the jar folder).", false);
+            logArg("serverDir", "The running directory of your server (if absent will create a new 'server' folder in the jar folder).", false);
             logArg("serverJar", "The jar file of your server (if not specified, the program will download minecraft's bundled server jar in <serverDir>).", false);
             logArg("bundled", "If the specified jar is a bundled server jar (which contains all the libraries). Only used when <serverJar> is specified.", false);
             logArg("libDir", "The libraries directory (needed when a non-bundled <serverJar> is specified).", false);
@@ -286,54 +293,70 @@ public abstract sealed class RuntimeEnvironment {
         }
 
         @Override
-        public boolean preSetup() {
-            return AgentManager.init();
-        }
-
-        @Override
         public boolean setup(Arguments args, String version) {
-            Path serverDir = MeoWrapper.RUNNING_PATH; // FileManager.createDirectory(args.getPath("serverDir", MeoWrapper.RUNNING_PATH.resolve("minecraft-server")));
+            javaPath = args.getPath("javaPath", null);
+            serverDir = FileManager.createDirectory(args.getPath("serverDir", MeoWrapper.RUNNING_PATH.resolve("minecraft-server")));
 
+            vmOptions = new ArrayList<>();
             Optional<Path> serverJarOpt = args.get("serverJar").map(Paths::get).filter(Files::exists).filter(Files::isRegularFile);
             if(args.contains("bundled") && serverJarOpt.isPresent()) {
                 serverJar = serverJarOpt.get().toFile();
                 mainClassName = "net.minecraft.bundler.Main";
-                libraries = new HashSet<>();
+                libraries = new ArrayList<>();
             } else {
                 Version versionJson;
                 Optional<VersionManifest> manifestOpt = FileManager.getVersionManifestData();
                 if(manifestOpt.isEmpty()) {
-                    return true;
+                    return false;
                 } else {
                     try {
                         versionJson = Version.read(FileManager.downloadVersionJson(args.getPath("versionJson", serverDir.resolve(version.concat(".json"))), version, manifestOpt.get()));
                     } catch (IOException e) {
                         error("Error when downloading version Json file!");
                         e.printStackTrace();
-                        return true;
+                        return false;
                     }
                 }
 
                 if(serverJarOpt.isPresent()) {
+                    List<Path> extractedNatives = new ArrayList<>();
                     serverJar = serverJarOpt.get().toFile();
-                    libraries = new LinkedHashSet<>(FileManager.getLibraries(args.getPath("libDir", serverDir.resolve("libraries")), args.getPath("nativesDir", serverDir.resolve("natives")), versionJson));
+                    libraries = FileManager.getLibraries(args.getPath("libDir", serverDir.resolve("libraries")), args.getPath("nativesDir", serverDir.resolve("natives")), versionJson, extractedNatives::add);
+                    extractedNatives.stream().map(Path::toAbsolutePath).map(Path::toString).reduce((path, path2) -> path + ";" + path2).map("-Djava.library.path="::concat).ifPresent(vmOptions::add);
                 } else {
                     serverJar = FileManager.downloadVersionJar(serverDir.resolve("bundled-".concat(version).concat(".jar")), versionJson, true);
                     mainClassName = "net.minecraft.bundler.Main";
-                    libraries = new HashSet<>();
+                    libraries = new ArrayList<>();
                 }
             }
 
+            args.get("vmOptions").map(RuntimeEnvironment::parseArray).map(Arrays::asList).ifPresent(vmOptions::addAll);
             args.get("mainClass").ifPresent(name -> mainClassName = name);
             arguments = concat(args.get("args").map(s -> s.split(" ")).orElse(new String[0]), createServerRunArgs(args));
 
-            return false;
+            return true;
         }
 
         @Override
-        public boolean preLaunch() {
-            AgentManager.tryAddJars(serverJar, libraries);
-            return true;
+        public Optional<String> getJavaPath() {
+            return Optional.ofNullable(javaPath).map(Path::toAbsolutePath).map(Path::toString);
+        }
+
+        @Override
+        public File getRunDir() {
+            return serverDir.toFile();
+        }
+
+        @Override
+        public List<File> getClassPath() {
+            List<File> classpath = new ArrayList<>(libraries);
+            classpath.add(serverJar);
+            return classpath;
+        }
+
+        @Override
+        public List<String> getVMOptions() {
+            return vmOptions;
         }
 
         @Override
@@ -357,12 +380,14 @@ public abstract sealed class RuntimeEnvironment {
     /**
      * An implementation of RuntimeEnvironment for the environments using the client jar.
      */
-    private static sealed abstract class ClientJarEnvironment extends RuntimeEnvironment {
+    private static non-sealed abstract class ClientJarEnvironment extends RuntimeEnvironment {
+        protected Path javaPath;
         protected Path mcDir;
         protected Path runDir;
         protected Version versionJson;
         protected File mcJar;
-        protected Set<File> libraries;
+        protected List<File> libraries;
+        protected List<String> vmOptions;
 
         @Override
         protected void logAdditionalArgs() {
@@ -376,12 +401,8 @@ public abstract sealed class RuntimeEnvironment {
         }
 
         @Override
-        public boolean preSetup() {
-            return AgentManager.init();
-        }
-
-        @Override
         public boolean setup(Arguments args, String version) {
+            javaPath = args.getPath("javaPath", null);
             mcDir = FileManager.createDirectory(args.getPath("mcDir", MeoWrapper.RUNNING_PATH.resolve(".minecraft")));
             runDir = FileManager.createDirectory(args.getPath("runDir", mcDir));
 
@@ -391,23 +412,38 @@ public abstract sealed class RuntimeEnvironment {
             } catch (IOException e) {
                 error("Error when downloading version Json file!");
                 e.printStackTrace();
-                return true;
+                return false;
             }
 
             mcJar = FileManager.downloadVersionJar(args.getPath("mcJar", mcDir.resolve("versions/" + version + "/" + version + ".jar")), versionJson, false);
-            libraries = new LinkedHashSet<>(FileManager.getLibraries(args.getPath("libDir", mcDir.resolve("libraries")), args.getPath("nativesDir", mcDir.resolve("natives")), versionJson));
-            return false;
+            vmOptions = new ArrayList<>();
+            List<Path> extractedNatives = new ArrayList<>();
+            libraries = FileManager.getLibraries(args.getPath("libDir", mcDir.resolve("libraries")), args.getPath("nativesDir", mcDir.resolve("natives")), versionJson, extractedNatives::add);
+            extractedNatives.stream().map(Path::toAbsolutePath).map(Path::toString).reduce((path, path2) -> path + ";" + path2).map("-Djava.library.path="::concat).ifPresent(vmOptions::add);
+            args.get("vmOptions").map(RuntimeEnvironment::parseArray).map(Arrays::asList).ifPresent(vmOptions::addAll);
+            return true;
         }
 
         @Override
-        public boolean preLaunch() {
-            debug("Listing libraries...");
-            libraries.forEach(file -> debug(file.toString()));
-            debug("Got %d libraries", libraries.size());
+        public Optional<String> getJavaPath() {
+            return Optional.ofNullable(javaPath).map(Path::toAbsolutePath).map(Path::toString);
+        }
 
-            debug("Adding to classpath...");
-            AgentManager.tryAddJars(mcJar, libraries);
-            return true;
+        @Override
+        public File getRunDir() {
+            return runDir.toFile();
+        }
+
+        @Override
+        public List<File> getClassPath() {
+            List<File> classpath = new ArrayList<>(libraries);
+            classpath.add(mcJar);
+            return classpath;
+        }
+
+        @Override
+        public List<String> getVMOptions() {
+            return vmOptions;
         }
     }
 }

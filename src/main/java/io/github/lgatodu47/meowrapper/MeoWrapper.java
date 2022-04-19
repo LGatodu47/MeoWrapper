@@ -1,13 +1,11 @@
 package io.github.lgatodu47.meowrapper;
 
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
+import java.io.File;
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Arrays;
-import java.util.Locale;
-import java.util.Optional;
+import java.util.*;
 
 import static io.github.lgatodu47.meowrapper.Logger.*;
 
@@ -33,45 +31,68 @@ public class MeoWrapper {
 
         DEBUG = args.contains("debug");
 
-        if(!env.preSetup()) return;
-        if(env.setup(args, version)) return;
-
-        launch(env);
+        if(env.setup(args, version))
+            launch(env);
     }
 
     private void launch(RuntimeEnvironment env) {
-        if(!env.preLaunch()) return;
+        List<String> commands = new ArrayList<>();
+        // Java executable
+        commands.add(env.getJavaPath().or(ProcessHandle.current().info()::command).orElseGet(() -> {
+            error("Could not find the current running java executable: setting process executable to 'java'");
+            return "java";
+        }));
+        // Classpath
+        debug("Listing classpath...");
+        env.getClassPath().stream().map(File::getAbsolutePath).peek(Logger::debug).reduce((path, path2) -> path + ";" + path2).ifPresentOrElse((path) -> {
+            commands.add("-cp");
+            commands.add(path);
+        }, () -> error("Classpath is absent!"));
+        // VM options
+        commands.addAll(env.getVMOptions());
+        commands.add(env.getMainClassName());
+        commands.addAll(Arrays.asList(env.getLaunchArguments()));
 
-        info("Launching Minecraft on '%s' with main '%s' and with args '%s'!", env.getName(), env.getMainClassName(), Arrays.toString(env.getLaunchArguments()));
-        ClassLoader loader = ClassLoader.getSystemClassLoader();
+        info("Launching Minecraft on '%s' with main '%s' and with args '%s'!", env.getName(), env.getMainClassName(), withoutAccessToken(env.getLaunchArguments()));
 
-        Class<?> clazz;
+        Process process;
         try {
-            clazz = loader.loadClass(env.getMainClassName());
-        } catch (ClassNotFoundException e) {
-            error("No class '%s' has been found in classpath!", env.getMainClassName());
+            process = new ProcessBuilder(commands).directory(env.getRunDir()).inheritIO().start();
+        } catch (IOException e) {
+            error("Failed to start process!");
             e.printStackTrace();
             return;
         }
 
-        Method method;
-        try {
-            method = clazz.getMethod("main", String[].class);
-        } catch (NoSuchMethodException e) {
-            error("No main method found in class '%s'!", env.getMainClassName());
-            e.printStackTrace();
-            return;
-        }
+        debug("Process with pid '%d' started.", process.pid());
 
         try {
-            method.invoke(null, (Object) env.getLaunchArguments());
-        } catch (IllegalAccessException e) {
-            error("Can't access main method in class '%s'!", env.getMainClassName());
-            e.printStackTrace();
-        } catch (InvocationTargetException e) {
-            error("Caught an exception when launching game!");
+            debug("Process ended with exit code: '%d'", process.waitFor());
+        } catch (InterruptedException e) {
+            error("Process interrupted");
             e.printStackTrace();
         }
+    }
+
+    private static String withoutAccessToken(String[] args) {
+        StringBuilder sb = new StringBuilder();
+
+        sb.append('[');
+        for(int i = 0; i < args.length; i++) {
+            String arg = args[i];
+
+            if(arg.substring(2).equals("accessToken")) {
+                i++;
+                continue;
+            }
+
+            sb.append(arg);
+            if(i != args.length - 1)
+                sb.append(", ");
+        }
+        sb.append(']');
+
+        return sb.toString();
     }
 
     private static boolean logHelp(String firstArg) {

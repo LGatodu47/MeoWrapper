@@ -8,6 +8,7 @@ import java.io.File;
 import java.io.FileReader;
 import java.io.IOException;
 import java.net.URL;
+import java.util.List;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -61,6 +62,7 @@ public class Version {
         public Map<String, String> natives;
         public Downloads downloads;
         public Rule[] rules;
+        public ExtractInfo extract;
 
         private String _version;
 
@@ -101,6 +103,10 @@ public class Version {
     public static class Downloads {
         public Map<String, LibraryDownloadInfo> classifiers;
         public LibraryDownloadInfo artifact;
+    }
+
+    public static class ExtractInfo {
+        public List<String> exclude;
     }
 
     public static Version read(File file) throws IOException {

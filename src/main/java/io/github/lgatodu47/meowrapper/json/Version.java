@@ -23,6 +23,7 @@ public class Version {
     public String assets;
     public Map<String, DownloadInfo> downloads;
     public String id;
+    public JavaVersion javaVersion;
     public Library[] libraries;
     public String mainClass;
 
@@ -107,6 +108,10 @@ public class Version {
 
     public static class ExtractInfo {
         public List<String> exclude;
+    }
+
+    public static class JavaVersion {
+        public int majorVersion;
     }
 
     public static Version read(File file) throws IOException {

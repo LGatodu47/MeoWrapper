@@ -3,6 +3,7 @@ package io.github.lgatodu47.meowrapper;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
+import java.util.stream.Collectors;
 
 import static io.github.lgatodu47.meowrapper.Logger.*;
 
@@ -95,7 +96,7 @@ public class Arguments {
      */
     public String[] toNonnullArgs() {
         String[] result = new String[(int) argumentMap.values().stream().filter(Objects::nonNull).count() * 2]; // we only want non-null entries
-        List<Map.Entry<String, String>> list = argumentMap.entrySet().stream().filter(entry -> entry.getValue() != null).toList();
+        List<Map.Entry<String, String>> list = argumentMap.entrySet().stream().filter(entry -> entry.getValue() != null).collect(Collectors.toList());
 
         for(int i = 0; i < list.size(); i++) {
             Map.Entry<String, String> entry = list.get(i);

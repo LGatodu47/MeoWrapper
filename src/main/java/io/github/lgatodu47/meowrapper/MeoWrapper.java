@@ -14,7 +14,7 @@ public class MeoWrapper {
 
     private void start(Arguments args) {
         Optional<RuntimeEnvironment> optEnvironment = args.get("environment").flatMap(RuntimeEnvironment::byName);
-        if(optEnvironment.isEmpty()) {
+        if(!optEnvironment.isPresent()) {
             error("Missing or invalid 'environment' argument! Type 'help' for more info about the needed arguments");
             return;
         }
@@ -22,7 +22,7 @@ public class MeoWrapper {
         RuntimeEnvironment env = optEnvironment.get();
 
         Optional<String> optVersion = args.get("version");
-        if(optVersion.isEmpty()) {
+        if(!optVersion.isPresent()) {
             error("Missing 'version' argument! Type 'help-<%s>' to have the list of arguments for the current environment", env.getName().toLowerCase(Locale.ROOT));
             return;
         }
@@ -38,16 +38,23 @@ public class MeoWrapper {
     private void launch(RuntimeEnvironment env) {
         List<String> commands = new ArrayList<>();
         // Java executable
-        commands.add(env.getJavaPath().or(ProcessHandle.current().info()::command).orElseGet(() -> {
+        Optional<String> javaPath = env.getJavaPath();
+        if(!javaPath.isPresent()) {
+            javaPath = Utils.getJavaExecutable();
+        }
+        commands.add(javaPath.orElseGet(() -> {
             error("Could not find the current running java executable: setting process executable to 'java'");
             return "java";
         }));
         // Classpath
         debug("Listing classpath...");
-        env.getClassPath().stream().map(File::getAbsolutePath).peek(Logger::debug).reduce((path, path2) -> path + ";" + path2).ifPresentOrElse((path) -> {
+        Optional<String> classpath = env.getClassPath().stream().map(File::getAbsolutePath).peek(Logger::debug).reduce((path, path2) -> path + ";" + path2);
+        if(classpath.isPresent()) {
             commands.add("-cp");
-            commands.add(path);
-        }, () -> error("Classpath is absent!"));
+            commands.add(classpath.get());
+        } else {
+            error("Classpath is absent!");
+        }
         // VM options
         commands.addAll(env.getVMOptions());
         commands.add(env.getMainClassName());
@@ -64,7 +71,8 @@ public class MeoWrapper {
             return;
         }
 
-        debug("Process with pid '%d' started.", process.pid());
+        Utils.getProcessId(process).ifPresent(pid -> debug("Process with pid '%d' started.", pid));
+        nl();
 
         try {
             debug("Process ended with exit code: '%d'", process.waitFor());
@@ -98,8 +106,14 @@ public class MeoWrapper {
     private static boolean logHelp(String firstArg) {
         if(firstArg.contains("help") || "?".equals(firstArg)) {
             if(firstArg.contains("help-")) {
-                String envString = firstArg.substring(firstArg.indexOf('-') + 1);
-                RuntimeEnvironment.byName(envString).ifPresentOrElse(RuntimeEnvironment::logArgumentsList, () -> error("Could not find environment with name '%s'!", envString));
+                String envString = firstArg.substring(firstArg.lastIndexOf('-') + 1);
+                Optional<RuntimeEnvironment> env = RuntimeEnvironment.byName(envString);
+
+                if(env.isPresent()) {
+                    env.get().logArgumentsList();
+                } else {
+                    error("Could not find environment with name '%s'!", envString);
+                }
             } else {
                 info("Welcome in MeoWrapper! To run the program, you will need to specify arguments depending on the running environment you want. There are currently 3 run environments: Client, Server and Data. To learn more about the required arguments of the environment of your choice, use the argument 'help-<env>'!");
             }

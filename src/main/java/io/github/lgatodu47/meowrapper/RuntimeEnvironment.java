@@ -18,7 +18,7 @@ import static io.github.lgatodu47.meowrapper.Logger.*;
  * This class is separated in 3 inner subclasses: Client, Data and Server<br>
  * Each subclass corresponds to an available running environment for Minecraft.
  */
-public abstract sealed class RuntimeEnvironment {
+public abstract class RuntimeEnvironment {
     // Marked them unused so IntelliJ doesn't bother
     @SuppressWarnings("unused")
     public static final RuntimeEnvironment CLIENT = new Client();
@@ -130,6 +130,8 @@ public abstract sealed class RuntimeEnvironment {
 
     /**
      * Concat two arrays of Strings into one.
+     * @param a The first array.
+     * @param b The second array.
      * @return An array of length {@code a.length + b.length} containing all the elements in {@code a} and in {@code b}.
      */
     protected static String[] concat(String[] a, String[] b) {
@@ -177,8 +179,12 @@ public abstract sealed class RuntimeEnvironment {
         public boolean setup(Arguments args, String version) {
             if(!super.setup(args, version)) return false;
 
-            Path assetsDir = FileManager.gatherAssets(args.getPath("assetsDir", mcDir.resolve("assets")), versionJson);
-            args.get("mainClass").or(() -> Optional.ofNullable(versionJson.mainClass)).ifPresent(name -> mainClassName = name);
+            Path assetsDir = FileManager.gatherAssets(args.getPath("assetsDir", mcDir.resolve("assets")).toAbsolutePath(), versionJson);
+            Optional<String> main = args.get("mainClass");
+            if(!main.isPresent()) {
+                main = Optional.ofNullable(versionJson.mainClass);
+            }
+            main.ifPresent(name -> mainClassName = name);
             arguments = concat(args.get("args").map(s -> s.split(" ")).orElse(new String[0]), createClientRunArgs(runDir, assetsDir, versionJson.assets, version, args));
 
             return true;
@@ -196,8 +202,8 @@ public abstract sealed class RuntimeEnvironment {
 
         private static String[] createClientRunArgs(Path runDir, Path assetsDir, String assetIndex, String version, Arguments args) {
             Map<String, String> map = new LinkedHashMap<>();
-            map.put("gameDir", runDir.toString());
-            map.put("assetsDir", assetsDir.toString());
+            map.put("gameDir", runDir.toAbsolutePath().toString());
+            map.put("assetsDir", assetsDir.toAbsolutePath().toString());
             map.put("assetIndex", assetIndex);
             map.put("version", version);
             map.put("accessToken", args.get("accessToken").orElse("0"));
@@ -258,7 +264,7 @@ public abstract sealed class RuntimeEnvironment {
             for(String generator : generators) {
                 map.put(generator, null);
             }
-            map.put("output", outputDir.toString());
+            map.put("output", outputDir.toAbsolutePath().toString());
             args.get("inputDirs").ifPresent(inputDirs -> map.put("input", inputDirs));
             return new Arguments(map).toArgs();
         }
@@ -306,7 +312,7 @@ public abstract sealed class RuntimeEnvironment {
             } else {
                 Version versionJson;
                 Optional<VersionManifest> manifestOpt = FileManager.getVersionManifestData();
-                if(manifestOpt.isEmpty()) {
+                if(!manifestOpt.isPresent()) {
                     return false;
                 } else {
                     try {
@@ -315,6 +321,12 @@ public abstract sealed class RuntimeEnvironment {
                         error("Error when downloading version Json file!");
                         e.printStackTrace();
                         return false;
+                    }
+                }
+
+                if(versionJson.javaVersion != null && javaPath == null) {
+                    if(Utils.getJavaVersion() < versionJson.javaVersion.majorVersion) {
+                        warn("According to the version json, you are not running on a recent-enough java major version. The game may crash! (Current major java version: '%s', required: '%s')", Utils.getJavaVersion(), versionJson.javaVersion.majorVersion);
                     }
                 }
 
@@ -380,7 +392,7 @@ public abstract sealed class RuntimeEnvironment {
     /**
      * An implementation of RuntimeEnvironment for the environments using the client jar.
      */
-    private static non-sealed abstract class ClientJarEnvironment extends RuntimeEnvironment {
+    private static abstract class ClientJarEnvironment extends RuntimeEnvironment {
         protected Path javaPath;
         protected Path mcDir;
         protected Path runDir;
@@ -413,6 +425,12 @@ public abstract sealed class RuntimeEnvironment {
                 error("Error when downloading version Json file!");
                 e.printStackTrace();
                 return false;
+            }
+
+            if(versionJson.javaVersion != null && javaPath == null) {
+                if(Utils.getJavaVersion() < versionJson.javaVersion.majorVersion) {
+                    warn("According to the version json, you are not running on a recent-enough java major version. The game may crash! (Current major java version: '%s', required: '%s')", Utils.getJavaVersion(), versionJson.javaVersion.majorVersion);
+                }
             }
 
             mcJar = FileManager.downloadVersionJar(args.getPath("mcJar", mcDir.resolve("versions/" + version + "/" + version + ".jar")), versionJson, false);

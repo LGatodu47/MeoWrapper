@@ -7,6 +7,12 @@ plugins {
 group 'io.github.lgatodu47'
 version "${version}" + (snapshot == "true" ? "-SNAPSHOT" : "")
 
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(8)
+    }
+}
+
 repositories {
     mavenCentral()
 }
@@ -35,7 +41,7 @@ task fatJar(type: Jar) {
     classifier 'cmd'
     group 'build'
 
-    manifest = jar.manifest;
+    manifest = jar.manifest
 
     from { configurations.exports.collect {it.isDirectory() ? it : zipTree(it)} }
 

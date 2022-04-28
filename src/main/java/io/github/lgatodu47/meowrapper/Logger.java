@@ -14,6 +14,7 @@ class Logger {
 
     static final String INFO_COLOR = DISABLE_ANSI ? "" : "\033[0;32m"; // GREEN
     static final String DEBUG_COLOR = DISABLE_ANSI ? "" : "\033[0;36m"; // CYAN
+    static final String WARN_COLOR = DISABLE_ANSI ? "" : "\033[0;33m"; // YELLOW
     static final String ERROR_COLOR = DISABLE_ANSI ? "" : "\033[0;31m"; // RED
     static final String RESET = DISABLE_ANSI ? "" : "\033[0m";
 
@@ -23,6 +24,10 @@ class Logger {
 
     static void debug(String msg, Object... args) {
         if(DEBUG) log(DEBUG_COLOR, "DEBUG", msg, args);
+    }
+
+    static void warn(String msg, Object... args) {
+        log(WARN_COLOR, "WARN", msg, args);
     }
 
     static void error(String msg, Object... args) {

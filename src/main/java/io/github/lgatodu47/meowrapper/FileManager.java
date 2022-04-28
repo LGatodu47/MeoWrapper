@@ -300,12 +300,12 @@ public class FileManager {
             Files.copy(connection.getInputStream(), target, StandardCopyOption.REPLACE_EXISTING);
 
             if (sha1 != null) {
-                String localSha1 = sha1(new FileInputStream(target.toFile()));
+                String localSha1 = sha1(Files.newInputStream(target));
                 if (sha1.equals(localSha1)) {
-                    debug("Successfully downloaded '%s'!", target.toFile().getName());
+                    debug("Successfully downloaded '%s'!", target.toAbsolutePath().toFile().getName());
                     return;
                 }
-                debug("Failed to download '%s': Invalid checksum:", target.toFile().getName());
+                debug("Failed to download '%s': Invalid checksum:", target.toAbsolutePath().toFile().getName());
                 debug("Expected: %s", sha1);
                 debug("Actual: %s", localSha1);
                 if (!target.toFile().delete()) {
@@ -313,7 +313,7 @@ public class FileManager {
                     return;
                 }
             }
-            debug("Successfully downloaded '%s'! No checksum, assuming valid.", target.toFile().getName());
+            debug("Successfully downloaded '%s'! No checksum, assuming valid.", target.toAbsolutePath().toFile().getName());
         }
     }
 
@@ -331,7 +331,7 @@ public class FileManager {
             Files.createDirectories(destinationDir);
 
             try(Stream<Path> files = Files.list(destinationDir)) {
-                if(Files.notExists(destinationDir) || files.findAny().isEmpty()) {
+                if(Files.notExists(destinationDir) || !files.findAny().isPresent()) {
                     extract(sourceFile, destinationDir, exclusions);
                 }
             }
@@ -361,7 +361,7 @@ public class FileManager {
                 if(entry.isDirectory()) continue;
 
                 for(String exclusionStr : exclusions) {
-                    if(Path.of(entry.getName()).startsWith(exclusionStr)) {
+                    if(Paths.get(entry.getName()).startsWith(exclusionStr)) {
                         continue whileLoop;
                     }
                 }
@@ -435,6 +435,8 @@ public class FileManager {
         return 0;
     }
 
+    private static final String EMPTY_HASH = "0000000000000000000000000000000000000000";
+
     /**
      * Hashes the data of an input stream using SHA-1 algorithm.
      *
@@ -455,6 +457,6 @@ public class FileManager {
             hash.update(buf, 0, count);
         stream.close();
         String hashStr = new BigInteger(1, hash.digest()).toString(16);
-        return ("0".repeat(40) + hashStr).substring(hashStr.length());
+        return (EMPTY_HASH + hashStr).substring(hashStr.length());
     }
 }

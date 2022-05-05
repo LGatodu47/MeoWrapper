@@ -8,7 +8,9 @@ is needed (e.g. plugin development) or when you're having issues with your Minec
 MeoWrapper can run in 3 environments:
 - Client (Normal Minecraft)
 - Data (Generation of data files; documentation for data packs)
-- Server (Minecraft Server)
+- Server (Minecraft Server but not very useful)
+
+You can either use MeoWrapper in a Java project or in command-line.
 
 ****
 
@@ -31,7 +33,7 @@ should look like this:
     }
 
     dependencies {
-        runtimeOnly 'io.github.lgatodu47:meowrapper:1.2.0'
+        runtimeOnly 'io.github.lgatodu47:meowrapper:1.3.0'
     }
 
 We first declare the maven repository where the artifacts are located and then add the dependency
@@ -62,7 +64,7 @@ latest release of MeoWrapper. Put the downloaded jar in an empty folder and open
 in the run folder. You can then run the jar with argument `help-<env>` to have more info about an
 environment.  
 
-If you are running on Windows, the console output may be messed up: this is probably because you
+If you are running on an old enough Windows 10 version, the console output may be messed up: this is probably because you
 haven't enabled ANSI. To enable ANSI, run the command prompt as administrator and paste this line:  
 `reg add HKEY_CURRENT_USER\Console /v VirtualTerminalLevel /t REG_DWORD /d 0x00000001 /f`  
 If you want for some reason to disable ANSI, you can paste this line:  
@@ -73,10 +75,26 @@ You can find many JDKs on websites such as [OpenJDK](https://jdk.java.net/17/) o
 
 ****
 
-And there you go! You can now launch Minecraft in your Java projects. Don't forget that if you
-find a bug or have issues launching the game you can open an issue on the [issue tracker](https://github.com/LGatodu47/MeoWrapper/issues).
+### Mod loaders
 
-**MeoWrapper should not be used to play Minecraft for free! Remember that pirating is bad!**
+Mod loaders are supported by MeoWrapper starting from 1.3. I tested Forge, Fabric and Optifine, but
+MeoWrapper should have no issue handling other Mod loaders. Of course if you encounter an issue with mod loaders
+feel free to open an issue on the GitHub page.
+
+You can install a mod loader on client simply by specifying your minecraft home directory in the installer.
+To launch the modded game you will need to go to '.minecraft/versions' and search for the version that has
+the name of the mod loader with the minecraft version that it is installed for. Simply copy the name of that
+folder and specify it in the `--version` argument. For example, you may set `--version 1.18.2-forge-40.1.0`
+for forge 40.1 for minecraft 1.18.2.
+
+Note that MeoWrapper doesn't handle mod loading on the server environment. The reason why is that most of the
+case mod loaders installers directly download the server jar and sets up everything, making using MeoWrapper
+useless.
+
+****
+
+And there you go! Don't forget that if you
+find a bug or have issues launching the game you can open an issue on the [issue tracker](https://github.com/LGatodu47/MeoWrapper/issues).
 
 *MeoWrapper is not affiliated with Minecraft, Mojang or Microsoft*  
 *You can get Minecraft [here](https://www.minecraft.net/)*

@@ -2,6 +2,7 @@ package io.github.lgatodu47.meowrapper;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.stream.JsonWriter;
 import io.github.lgatodu47.meowrapper.json.Assets;
 import io.github.lgatodu47.meowrapper.json.Version;
 import io.github.lgatodu47.meowrapper.json.VersionManifest;
@@ -19,6 +20,7 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.*;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 import java.util.stream.Stream;
@@ -29,13 +31,16 @@ import static io.github.lgatodu47.meowrapper.Logger.*;
  * Class everything related to File managing (File download, creation, etc.)
  */
 public class FileManager {
+    /**
+     * Unique instance of Gson for this class.
+     */
     private static final Gson GSON = new GsonBuilder().setLenient().create();
 
     /**
-     * Creates a directory if it doesn't exist.
+     * Creates a directory at the specified location if it doesn't exist.
      *
-     * @param dir The path to the directory to create.
-     * @return The input directory.
+     * @param dir The path of the directory to create.
+     * @return The directory that was just created.
      */
     public static Path createDirectory(Path dir) {
         try {
@@ -48,6 +53,36 @@ public class FileManager {
         return dir;
     }
 
+    /**
+     * Creates a fake {@code launcher_profiles.json} for mod loader installers (such as Optifine Installer or Forge Installer).
+     * If the file is absent these installers won't work.
+     * @param mcDir Minecraft's home directory.
+     */
+    public static void createFakeLauncherProfiles(Path mcDir) {
+        Path file = mcDir.resolve("launcher_profiles.json");
+
+        if(Files.notExists(file)) {
+            try {
+                JsonWriter writer = GSON.newJsonWriter(new FileWriter(file.toFile()));
+
+                writer.beginObject();
+                writer.name("profiles"); writer.beginObject();
+                writer.endObject();
+                writer.name("version"); writer.value(3); // Version 3 seems to be the most recent one
+                writer.name("selectedProfile"); writer.value("");
+                writer.endObject();
+
+                writer.close();
+            } catch (IOException e) {
+                error("Error when writing fake 'launcher_profiles.json'. This may cause issues when installing mod loaders!");
+                e.printStackTrace();
+            }
+        }
+    }
+
+    /**
+     * URL to the official version manifest for Minecraft.
+     */
     private static final String MANIFEST_URL = "https://launchermeta.mojang.com/mc/game/version_manifest.json";
 
     /**
@@ -93,34 +128,44 @@ public class FileManager {
      * Checks and downloads the version json file if it is not present.
      *
      * @param versionJsonPath The path leading to the version json file.
-     * @param version The game version.
+     * @param versionName The game version.
      * @param manifest The version manifest.
-     * @return A File representation of the version json path.
+     * @param parentPathGetter A function taking the name of the parent version and returning the path it should be downloaded.
+     * @return A {@link Version} instance representing the version Json file's content (may be {@code null}).
+     * @throws IOException If an I/O error occurs when downloading the Json file or reading it.
      */
-    public static File downloadVersionJson(Path versionJsonPath, String version, VersionManifest manifest) {
-        try {
-            if(Files.notExists(versionJsonPath)) {
-                URL versionUrl = manifest.getUrl(version);
+    public static Version downloadVersionJson(Path versionJsonPath, String versionName, VersionManifest manifest, Function<String, Path> parentPathGetter) throws IOException {
+        if(Files.notExists(versionJsonPath)) {
+            try {
+                URL versionUrl = manifest.getUrl(versionName);
                 if (versionUrl != null) {
                     Files.createDirectories(versionJsonPath.getParent());
 
                     try (InputStream versionData = versionUrl.openStream()) {
                         Files.copy(versionData, versionJsonPath);
-                        debug("Downloaded version json for minecraft " + version);
+                        debug("Downloaded version json for minecraft " + versionName);
                     }
                 } else {
-                    error("Missing version from manifest: " + version);
+                    error("Missing version from manifest: %s. Your manifest may be outdated, try running with '--updateVersionManifest'.", versionName);
                 }
+            } catch (IOException e) {
+                error("Failed to download version json file");
+                throw e; // We handle this exception in the method call.
             }
-        } catch (IOException e) {
-            error("Failed to download version json file");
-            e.printStackTrace();
         }
-        return versionJsonPath.toFile();
+
+        Version version = Version.read(versionJsonPath.toFile());
+        if(version.inheritsFrom != null) {
+            String parentName = version.inheritsFrom;
+            Version parent = downloadVersionJson(parentPathGetter.apply(parentName), parentName, manifest, parentPathGetter); // We recursively download and get the parent version Json.
+            return Version.merge(parent, version); // And we finally return a merged version Json of the parent and the child.
+        }
+
+        return version;
     }
 
     /**
-     * Checks and downloads the version json file if it is not present.
+     * Checks and downloads the version Jar file if it is not present.
      *
      * @param versionJarPath The path to the version jar.
      * @param versionJson The version info.
@@ -128,7 +173,8 @@ public class FileManager {
      * @return A File representation of the version jar path.
      */
     public static File downloadVersionJar(Path versionJarPath, Version versionJson, boolean isServer) {
-        if(Files.notExists(versionJarPath)) {
+        // We check for file size because Fabric installer creates an empty version jar (which is of course not readable) when installing.
+        if(Files.notExists(versionJarPath) || getFileSize(versionJarPath) == 0) {
             Version.DownloadInfo download = versionJson.downloads.get(isServer ? "server" : "client");
             if(download != null) {
                 try {
@@ -157,21 +203,28 @@ public class FileManager {
 
         for(Version.Library lib : versionJson.libraries) {
             if(lib.isAllowed()) { // Some libraries are only allowed on some operating systems
-                Version.LibraryDownloadInfo download = lib.downloads.artifact;
-                if(download != null) {
-                    Path path = tryFindMoreRecent(libDir, download, lib.getVersion());
+                // Version Json created by Optifine and Fabric don't have 'lib.downloads.artifact'.
+                // We therefore must deduce the artifact info with the name of the library.
+                // That's why there are now getters for each artifact info in Version.Library
+                String artifactPath = lib.getArtifactPath();
+                if(artifactPath != null) {
+                    Path path = libDir.resolve(artifactPath);
 
-                    if(path == null) {
-                        path = libDir.resolve(download.path);
+                    if(Files.notExists(path)) {
+                        URL url = lib.getDownloadURL();
+                        if(url == null) {
+                            if(lib.natives == null)
+                                error("No download url for library '%s'!", lib.name);
+                            continue;
+                        }
 
-                        if(Files.notExists(path)) {
-                            try {
-                                download(path, download.url, download.sha1);
-                            } catch (IOException e) {
-                                error("An error occurred when downloading library with path '%s'", download.path);
-                                e.printStackTrace();
-                                continue;
-                            }
+                        String sha1 = MeoWrapperUtils.safeReference(() -> lib.downloads.artifact.sha1); // Here the sha1 is allowed to be null
+                        try {
+                            download(path, url, sha1);
+                        } catch (IOException e) {
+                            error("An error occurred when downloading library with path '%s'", artifactPath);
+                            e.printStackTrace();
+                            continue;
                         }
                     }
 
@@ -179,22 +232,18 @@ public class FileManager {
                 }
 
                 if(lib.natives != null) {
-                    Version.LibraryDownloadInfo nativeDownload = lib.downloads.classifiers.get(lib.natives.get(Os.getCurrent().getName()));
+                    Version.LibraryDownloadInfo nativeDownload = MeoWrapperUtils.safeReference(() -> lib.downloads.classifiers.get(lib.natives.get(Os.getCurrent().getName())));
 
                     if(nativeDownload != null) {
-                        Path nativePath = tryFindMoreRecent(libDir, nativeDownload, lib.getVersion());
+                        Path nativePath = libDir.resolve(nativeDownload.path);
 
-                        if(nativePath == null) {
-                            nativePath = libDir.resolve(nativeDownload.path);
-
-                            if(Files.notExists(nativePath)) {
-                                try {
-                                    download(nativePath, nativeDownload.url, nativeDownload.sha1);
-                                } catch (IOException e) {
-                                    error("An error occurred when downloading native library with path '%s'", nativeDownload.path);
-                                    e.printStackTrace();
-                                    continue;
-                                }
+                        if(Files.notExists(nativePath)) {
+                            try {
+                                download(nativePath, nativeDownload.url, nativeDownload.sha1);
+                            } catch (IOException e) {
+                                error("An error occurred when downloading native library with path '%s'", nativeDownload.path);
+                                e.printStackTrace();
+                                continue;
                             }
                         }
 
@@ -214,6 +263,10 @@ public class FileManager {
         return result;
     }
 
+    /**
+     * The official URL where assets can be downloaded.
+     * Assets links are made of this link followed by the 2 first letters of the asset's hash followed by the asset's hash itself.
+     */
     private static final String ASSETS_DOWNLOAD_URL = "https://resources.download.minecraft.net/";
 
     /**
@@ -381,60 +434,8 @@ public class FileManager {
     }
 
     /**
-     * Unused method that originally checked for more recent version of the library to download.
-     * Did this before I realised that there were download rules on libraries.<br>
-     * Might get re-implemented later-on for something else.
-     *
-     * @return {@code null}
+     * An empty hash of 40 characters.
      */
-    private static Path tryFindMoreRecent(Path libDir, Version.LibraryDownloadInfo download, String version) {
-//        Path parentDir = libDir.resolve(download.path.substring(0, download.path.indexOf(version)));
-//        if(Files.exists(parentDir)) {
-//            try {
-//                Path path = Files.list(parentDir).filter(dir -> VERSION_SCHEME.matcher(dir.getFileName().toString()).find()).min((o1, o2) -> {
-//                    Matcher matcher0 = VERSION_SCHEME.matcher(o1.getFileName().toString());
-//                    Matcher matcher1 = VERSION_SCHEME.matcher(o2.getFileName().toString());
-//                    matcher0.find();
-//                    matcher1.find();
-//                    return compareVersions(matcher0.group(), matcher1.group());
-//                }).map(parentDir::resolve).orElse(null);
-//                if(path != null && Files.exists(path)) return path.resolve(download.path.substring(download.path.indexOf(version) + version.length() + 1).replace(version, path.getFileName().toString()));
-//            } catch (IOException e) {
-//                e.printStackTrace();
-//            }
-//        }
-        return null;
-    }
-
-    /**
-     * Compares two version strings.
-     *
-     * @return the value {@code 0} if {@code v1 == v2}; a value less than {@code 0} if {@code v2 < v1}; and a value greater than {@code 0} if {@code v2 > v1}
-     */
-    private static int compareVersions(String v1, String v2)
-    {
-        String[] versionNumbers1 = v1.split("\\.");
-        String[] versionNumbers2 = v2.split("\\.");
-
-        int[] maxVerNumbs = new int[Math.max(versionNumbers1.length, versionNumbers2.length)];
-        Arrays.fill(maxVerNumbs, 0);
-
-        // We copy the content of the strings into an array of the same size
-        int[] verNumbs1 = maxVerNumbs.clone();
-        int[] verNumbs2 = maxVerNumbs.clone();
-        System.arraycopy(Arrays.stream(versionNumbers1).mapToInt(Integer::parseInt).toArray(), 0, verNumbs1, 0, versionNumbers1.length);
-        System.arraycopy(Arrays.stream(versionNumbers2).mapToInt(Integer::parseInt).toArray(), 0, verNumbs2, 0, versionNumbers2.length);
-
-        for(int i = 0; i < maxVerNumbs.length; i++)
-        {
-            int result = Integer.compare(verNumbs2[i], verNumbs1[i]); // we want to sort into descending order so the two values are inverted
-            if(result == 0) continue;
-            return result;
-        }
-
-        return 0;
-    }
-
     private static final String EMPTY_HASH = "0000000000000000000000000000000000000000";
 
     /**
@@ -458,5 +459,23 @@ public class FileManager {
         stream.close();
         String hashStr = new BigInteger(1, hash.digest()).toString(16);
         return (EMPTY_HASH + hashStr).substring(hashStr.length());
+    }
+
+    /**
+     * Gets the size of the file located at the specified path.
+     * @param path The path of the file.
+     * @return A long representation of the file size.
+     */
+    private static long getFileSize(Path path) {
+        long size = 0;
+        if(Files.exists(path)) {
+            try {
+                size = Files.size(path);
+            } catch (IOException e) {
+                error("Failed to obtain file size for file '%s'", path.toAbsolutePath());
+                e.printStackTrace();
+            }
+        }
+        return size;
     }
 }

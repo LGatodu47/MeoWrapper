@@ -5,7 +5,7 @@ plugins {
 }
 
 group 'io.github.lgatodu47'
-version "${version}" + (snapshot == "true" ? "-SNAPSHOT" : "")
+version "${meowrapper_version}" + (snapshot == "true" ? "-SNAPSHOT" : "")
 
 java {
     toolchain {
@@ -35,6 +35,8 @@ jar {
                 "Main-class": "io.github.lgatodu47.meowrapper.MeoWrapper"
         )
     }
+
+    libsDirName = "libs/${meowrapper_version}"
 }
 
 task fatJar(type: Jar) {

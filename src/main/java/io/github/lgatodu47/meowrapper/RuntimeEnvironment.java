@@ -10,6 +10,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
+import java.util.stream.Collectors;
 
 import static io.github.lgatodu47.meowrapper.Logger.*;
 
@@ -31,7 +32,7 @@ public abstract class RuntimeEnvironment {
      * Similar to {@link Enum#valueOf(Class, String)} but with reflection to get all the fields.
      *
      * @param name The name of the environment
-     * @return An Optional containing the Runtime environment if it was found.
+     * @return An Optional holding the Runtime environment if it was found.
      */
     public static Optional<RuntimeEnvironment> byName(String name) {
         Field[] fields = RuntimeEnvironment.class.getFields();
@@ -56,6 +57,7 @@ public abstract class RuntimeEnvironment {
     public final void logArgumentsList() {
         info("Here is the list of all the arguments:");
         logArg("debug", "If specified, debug messages will be logged.", false);
+        logArg("install", "If specified, the game will successfully be installed and won't be launched.", false);
         logArg("environment", "The running environment of the game: Client, Server or Data.", true);
         logArg("version", "The minecraft version you're using.", true);
         logArg("javaPath", "The path to a custom java executable for Minecraft.", false);
@@ -129,28 +131,18 @@ public abstract class RuntimeEnvironment {
     }
 
     /**
-     * Concat two arrays of Strings into one.
-     * @param a The first array.
-     * @param b The second array.
-     * @return An array of length {@code a.length + b.length} containing all the elements in {@code a} and in {@code b}.
-     */
-    protected static String[] concat(String[] a, String[] b) {
-        String[] result = Arrays.copyOf(a, a.length + b.length);
-        System.arraycopy(b, 0, result, a.length, b.length);
-        return result;
-    }
-
-    /**
      * Parses a String into a String array.
      *
      * @param input The String representation of the array.
      * @return The parsed array.
      */
     protected static String[] parseArray(String input) {
-        String str = input.replace(" ", "");
-        if(str.startsWith("[") && str.endsWith("]"))
-            str = str.substring(1, str.length() - 1);
-        return str.split(",");
+        if(input.startsWith("[") && input.endsWith("]")) {
+            String str = input.substring(1, input.length() - 1).replace(" ", "");
+            return str.split(",");
+        } else {
+            return MeoWrapperUtils.smartSplit(input);
+        }
     }
 
     /**
@@ -179,13 +171,14 @@ public abstract class RuntimeEnvironment {
         public boolean setup(Arguments args, String version) {
             if(!super.setup(args, version)) return false;
 
+            String assetIndex = versionJson.assets;
             Path assetsDir = FileManager.gatherAssets(args.getPath("assetsDir", mcDir.resolve("assets")).toAbsolutePath(), versionJson);
             Optional<String> main = args.get("mainClass");
             if(!main.isPresent()) {
                 main = Optional.ofNullable(versionJson.mainClass);
             }
             main.ifPresent(name -> mainClassName = name);
-            arguments = concat(args.get("args").map(s -> s.split(" ")).orElse(new String[0]), createClientRunArgs(runDir, assetsDir, versionJson.assets, version, args));
+            arguments = MeoWrapperUtils.concat(args.getLaunchArguments(), new Arguments(versionJson.getGameArguments(), createArgsSubstitutionMap(assetsDir, assetIndex, args, runDir, version, libDir, nativesDir)).toArgs());
 
             return true;
         }
@@ -200,18 +193,27 @@ public abstract class RuntimeEnvironment {
             return "Client";
         }
 
-        private static String[] createClientRunArgs(Path runDir, Path assetsDir, String assetIndex, String version, Arguments args) {
-            Map<String, String> map = new LinkedHashMap<>();
-            map.put("gameDir", runDir.toAbsolutePath().toString());
-            map.put("assetsDir", assetsDir.toAbsolutePath().toString());
-            map.put("assetIndex", assetIndex);
-            map.put("version", version);
-            map.put("accessToken", args.get("accessToken").orElse("0"));
-            // These are optional arguments
-            args.get("username").ifPresent(username -> map.put("username", username));
-            args.get("width").ifPresent(width -> map.put("width", width));
-            args.get("height").ifPresent(height -> map.put("height", height));
-            return new Arguments(map).toNonnullArgs();
+        /**
+         * Makes a variable substitution map for version json game arguments parsing.
+         * @param assetsDir The game's assets directory.
+         * @param assetIndex The asset index name.
+         * @param args The program arguments.
+         * @param runDir The game's run directory.
+         * @param versionName The name of the game version.
+         * @param libDir The game's libraries directory.
+         * @param nativesDir The game's natives directory.
+         * @return A map with the variable names mapped to their corresponding value.
+         */
+        private static Map<String, String> createArgsSubstitutionMap(Path assetsDir, String assetIndex, Arguments args, Path runDir, String versionName, Path libDir, Path nativesDir) {
+            Map<String, String> map = createVMArgsSubstitutionMap(runDir, versionName, libDir, nativesDir);
+            map.put("assets_root", pathString(assetsDir));
+            map.put("assets_index_name", assetIndex);
+            map.put("auth_access_token", args.get("accessToken").orElse("0"));
+            // These are the optional arguments
+            args.get("username").ifPresent(username -> map.put("auth_player_name", username));
+            args.get("width").ifPresent(width -> map.put("resolution_width", width));
+            args.get("height").ifPresent(height -> map.put("resolution_height", height));
+            return map;
         }
     }
 
@@ -237,10 +239,15 @@ public abstract class RuntimeEnvironment {
 
         @Override
         public boolean setup(Arguments args, String version) {
+            if(MeoWrapperUtils.compareVersions(version, "1.13") > 0) {
+                error("No data environment is available before 1.13!");
+                return false;
+            }
+
             if(!super.setup(args, version)) return false;
 
             args.get("mainClass").ifPresent(name -> mainClassName = name);
-            arguments = concat(args.get("args").map(s -> s.split(" ")).orElse(new String[0]), createDataRunArgs(
+            arguments = MeoWrapperUtils.concat(args.get("args").map(s -> s.split(" ")).orElse(new String[0]), createDataRunArgs(
                     args.get("include").map(RuntimeEnvironment::parseArray).orElse(new String[] {"all"}),
                     FileManager.createDirectory(args.getPath("outputDir", runDir.resolve("generated"))),
                     args
@@ -264,9 +271,9 @@ public abstract class RuntimeEnvironment {
             for(String generator : generators) {
                 map.put(generator, null);
             }
-            map.put("output", outputDir.toAbsolutePath().toString());
+            map.put("output", pathString(outputDir));
             args.get("inputDirs").ifPresent(inputDirs -> map.put("input", inputDirs));
-            return new Arguments(map).toArgs();
+            return Arguments.toArgs(map);
         }
     }
 
@@ -316,7 +323,7 @@ public abstract class RuntimeEnvironment {
                     return false;
                 } else {
                     try {
-                        versionJson = Version.read(FileManager.downloadVersionJson(args.getPath("versionJson", serverDir.resolve(version.concat(".json"))), version, manifestOpt.get()));
+                        versionJson = FileManager.downloadVersionJson(args.getPath("versionJson", serverDir.resolve(version.concat(".json"))), version, manifestOpt.get(), name -> serverDir.resolve(name + ".json"));
                     } catch (IOException e) {
                         error("Error when downloading version Json file!");
                         e.printStackTrace();
@@ -325,8 +332,8 @@ public abstract class RuntimeEnvironment {
                 }
 
                 if(versionJson.javaVersion != null && javaPath == null) {
-                    if(Utils.getJavaVersion() < versionJson.javaVersion.majorVersion) {
-                        warn("According to the version json, you are not running on a recent-enough java major version. The game may crash! (Current major java version: '%s', required: '%s')", Utils.getJavaVersion(), versionJson.javaVersion.majorVersion);
+                    if(MeoWrapperUtils.getJavaVersion() < versionJson.javaVersion.majorVersion) {
+                        warn("According to the version json, you are not running on a recent-enough java major version. The game may crash! (Current major java version: '%s', required: '%s')", MeoWrapperUtils.getJavaVersion(), versionJson.javaVersion.majorVersion);
                     }
                 }
 
@@ -344,7 +351,7 @@ public abstract class RuntimeEnvironment {
 
             args.get("vmOptions").map(RuntimeEnvironment::parseArray).map(Arrays::asList).ifPresent(vmOptions::addAll);
             args.get("mainClass").ifPresent(name -> mainClassName = name);
-            arguments = concat(args.get("args").map(s -> s.split(" ")).orElse(new String[0]), createServerRunArgs(args));
+            arguments = MeoWrapperUtils.concat(args.get("args").map(s -> s.split(" ")).orElse(new String[0]), createServerRunArgs(args));
 
             return true;
         }
@@ -385,7 +392,7 @@ public abstract class RuntimeEnvironment {
             Map<String, String> map = new LinkedHashMap<>();
             if(args.contains("nogui")) map.put("nogui", null);
             args.get("port").ifPresent(port -> map.put("port", port));
-            return new Arguments(map).toArgs();
+            return Arguments.toArgs(map);
         }
     }
 
@@ -398,6 +405,8 @@ public abstract class RuntimeEnvironment {
         protected Path runDir;
         protected Version versionJson;
         protected File mcJar;
+        protected Path libDir;
+        protected Path nativesDir;
         protected List<File> libraries;
         protected List<String> vmOptions;
 
@@ -417,26 +426,32 @@ public abstract class RuntimeEnvironment {
             javaPath = args.getPath("javaPath", null);
             mcDir = FileManager.createDirectory(args.getPath("mcDir", MeoWrapper.RUNNING_PATH.resolve(".minecraft")));
             runDir = FileManager.createDirectory(args.getPath("runDir", mcDir));
+            FileManager.createFakeLauncherProfiles(mcDir);
 
             try {
                 VersionManifest manifest = VersionManifest.read(FileManager.downloadVersionManifest(mcDir.resolve("versions/version_manifest.json"), args.contains("updateVersionManifest")));
-                versionJson = Version.read(FileManager.downloadVersionJson(args.getPath("versionJson", mcDir.resolve("versions/" + version + "/" + version + ".json")), version, manifest));
+                versionJson = FileManager.downloadVersionJson(args.getPath("versionJson", mcDir.resolve("versions/" + version + "/" + version + ".json")), version, manifest, name -> mcDir.resolve("versions/" + name + '/' + name + ".json"));
             } catch (IOException e) {
-                error("Error when downloading version Json file!");
+                error("Error when loading version Json file!");
                 e.printStackTrace();
                 return false;
             }
 
             if(versionJson.javaVersion != null && javaPath == null) {
-                if(Utils.getJavaVersion() < versionJson.javaVersion.majorVersion) {
-                    warn("According to the version json, you are not running on a recent-enough java major version. The game may crash! (Current major java version: '%s', required: '%s')", Utils.getJavaVersion(), versionJson.javaVersion.majorVersion);
+                if(MeoWrapperUtils.getJavaVersion() < versionJson.javaVersion.majorVersion) {
+                    warn("According to the version json, you are not running on a recent-enough java major version. The game may crash! (Current major java version: '%s', required: '%s')", MeoWrapperUtils.getJavaVersion(), versionJson.javaVersion.majorVersion);
                 }
             }
 
             mcJar = FileManager.downloadVersionJar(args.getPath("mcJar", mcDir.resolve("versions/" + version + "/" + version + ".jar")), versionJson, false);
-            vmOptions = new ArrayList<>();
+
             List<Path> extractedNatives = new ArrayList<>();
-            libraries = FileManager.getLibraries(args.getPath("libDir", mcDir.resolve("libraries")), args.getPath("nativesDir", mcDir.resolve("natives")), versionJson, extractedNatives::add);
+            libDir = args.getPath("libDir", mcDir.resolve("libraries")).toAbsolutePath();
+            nativesDir = args.getPath("nativesDir", mcDir.resolve("natives")).toAbsolutePath();
+
+            libraries = FileManager.getLibraries(libDir, nativesDir, versionJson, extractedNatives::add);
+            vmOptions = MeoWrapperUtils.replaceSubstitutes(versionJson.getJVMArguments().stream().filter(arg -> !arg.equals("-cp") && !arg.startsWith("-Djava.library.path")).collect(Collectors.toList()), createVMArgsSubstitutionMap(runDir, version, libDir, nativesDir));
+
             extractedNatives.stream().map(Path::toAbsolutePath).map(Path::toString).reduce((path, path2) -> path + ";" + path2).map("-Djava.library.path="::concat).ifPresent(vmOptions::add);
             args.get("vmOptions").map(RuntimeEnvironment::parseArray).map(Arrays::asList).ifPresent(vmOptions::addAll);
             return true;
@@ -462,6 +477,34 @@ public abstract class RuntimeEnvironment {
         @Override
         public List<String> getVMOptions() {
             return vmOptions;
+        }
+
+        /**
+         * Makes a variable substitution map for version json VM arguments parsing.
+         * @param runDir The run directory of the game.
+         * @param versionName The name of the minecraft version.
+         * @param libDir The game's library directory.
+         * @param nativesDir The game's natives directory.
+         * @return A map with the variable names mapped to their corresponding value.
+         */
+        protected static Map<String, String> createVMArgsSubstitutionMap(Path runDir, String versionName, Path libDir, Path nativesDir) {
+            Map<String, String> substitutionMap = new HashMap<>();
+            substitutionMap.put("game_directory", pathString(runDir));
+            substitutionMap.put("version_name", versionName);
+            substitutionMap.put("library_directory", pathString(libDir));
+            substitutionMap.put("natives_directory", pathString(nativesDir));
+            substitutionMap.put("classpath_separator", ";");
+            return substitutionMap;
+        }
+
+        /**
+         * Parses the specified path to an absolute path string.
+         * @param path The path to parse.
+         * @return A string representation of the absolute input path with unix file separators.
+         */
+        protected static String pathString(Path path) {
+            String str = path.toAbsolutePath().toString();
+            return Os.WINDOWS.equals(Os.getCurrent()) ? str.replace(File.separatorChar, '/') : str;
         }
     }
 }

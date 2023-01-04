@@ -33,7 +33,7 @@ should look like this:
     }
 
     dependencies {
-        runtimeOnly 'io.github.lgatodu47:meowrapper:1.3.0'
+        runtimeOnly 'io.github.lgatodu47:meowrapper:1.3.1'
     }
 
 We first declare the maven repository where the artifacts are located and then add the dependency

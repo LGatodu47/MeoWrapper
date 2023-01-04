@@ -121,7 +121,7 @@ public class MeoWrapper {
         for(int i = 0; i < args.length; i++) {
             String arg = args[i];
 
-            if(arg.substring(2).equals("accessToken")) {
+            if(arg.length() > 2 && arg.substring(2).equals("accessToken")) {
                 i++; // We therefore also skip the value
                 continue;
             }
